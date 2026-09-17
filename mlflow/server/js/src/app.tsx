@@ -13,7 +13,8 @@ import { Provider } from 'react-redux';
 import store from './store';
 import { useI18nInit } from './i18n/I18nUtils';
 import { DesignSystemContainer } from './common/components/DesignSystemContainer';
-import { QueryClient, QueryClientProvider } from '@mlflow/mlflow/src/common/utils/reactQueryHooks';
+import { QueryClientProvider } from '@mlflow/mlflow/src/common/utils/reactQueryHooks';
+import { createMlflowQueryClient } from './common/utils/createMlflowQueryClient';
 import { createApolloClient } from './graphql/client';
 import { LegacySkeleton } from '@databricks/design-system';
 // eslint-disable-next-line no-useless-rename
@@ -30,21 +31,7 @@ export function MLFlowRoot() {
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const apolloClient = useMemo(() => createApolloClient(), []);
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  const queryClient = useMemo(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          // The MLflow UI is not offline-first: every query targets the same origin that served
-          // this page, so if the page loaded, the server is reachable. React Query's default
-          // `networkMode: 'online'` pauses queries whenever `navigator.onLine` is false, which is
-          // unreliable (desktop Chrome can latch it process-wide while the network is fine) and
-          // leaves the UI stuck on loading skeletons with no error and no request.
-          queries: { networkMode: 'always' },
-          mutations: { networkMode: 'always' },
-        },
-      }),
-    [],
-  );
+  const queryClient = useMemo(() => createMlflowQueryClient(), []);
 
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const [isDarkTheme, setIsDarkTheme, MlflowThemeGlobalStyles] = useMLflowDarkTheme();
