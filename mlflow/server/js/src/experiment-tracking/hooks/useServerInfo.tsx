@@ -63,11 +63,16 @@ export function useServerInfo() {
     refetchOnWindowFocus: false,
     refetchOnMount: false,
     retry: false,
-    // `navigator.onLine` is unreliable (notably on desktop Chrome, where the browser process can
-    // latch to offline while the network is fine). React Query's default `networkMode: 'online'`
-    // pauses the query before `queryFn` runs, so the DEFAULT_RESPONSE fallback in fetchServerInfo
-    // never happens and every consumer stays in a permanent loading state.
+    // This query gates the whole app shell (see MlflowRouter), so it must never be paused by a
+    // false `navigator.onLine`. See createMlflowQueryClient for the full rationale; it is repeated
+    // here because this hook must hold even under a caller-supplied QueryClient.
     networkMode: 'always',
+    // On failure fetchServerInfo resolves with DEFAULT_RESPONSE, which React Query caches as a
+    // success. Combined with `staleTime: Infinity` the query would never be considered stale, so
+    // the default reconnect refetch would not fire and a load that happened while genuinely
+    // offline would leave the app in its fallback configuration until a full reload. `'always'`
+    // bypasses the staleness check.
+    refetchOnReconnect: 'always',
   });
 }
 

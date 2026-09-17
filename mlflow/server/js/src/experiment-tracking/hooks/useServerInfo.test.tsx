@@ -497,6 +497,8 @@ describe('useServerInfo when the browser reports being offline', () => {
   // Regression test: React Query's default `networkMode: 'online'` pauses a query before its
   // queryFn runs. Because MlflowRouter blocks router creation on useWorkspacesEnabled().loading,
   // a paused serverInfo query left the whole UI stuck on a skeleton with no error and no request.
+  // `onlineManager` is a module-level singleton, but Jest gives each test file its own module
+  // registry, so this does not leak into other suites.
   setupServer(
     rest.get('/ajax-api/3.0/mlflow/server-info', (_req, res, ctx) => {
       return res(
@@ -513,43 +515,61 @@ describe('useServerInfo when the browser reports being offline', () => {
 
   let queryClient: QueryClient;
 
+  const offlineWrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+
   beforeEach(() => {
     queryClient = createTestQueryClient();
     onlineManager.setOnline(false);
   });
 
   afterEach(() => {
+    // setOnline(undefined) restores auto-detection but does not notify listeners; flipping to
+    // true first makes the reset resume-safe for anything still subscribed.
+    onlineManager.setOnline(true);
     onlineManager.setOnline(undefined);
-    resetServerInfoCache();
     queryClient.clear();
   });
 
   test('resolves instead of pausing forever', async () => {
-    const { result } = renderHook(() => useServerInfo(), {
-      wrapper: ({ children }: { children: React.ReactNode }) => (
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-      ),
-    });
+    const { result } = renderHook(() => useServerInfo(), { wrapper: offlineWrapper });
 
     await waitFor(() => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    expect(result.current.fetchStatus).not.toBe('paused');
+    // DEFAULT_RESPONSE.store_type is '', so this proves the request actually fired.
     expect(result.current.data?.store_type).toBe('SqlStore');
   });
 
   test('useWorkspacesEnabled stops loading so the router can be created', async () => {
-    const { result } = renderHook(() => useWorkspacesEnabled(), {
-      wrapper: ({ children }: { children: React.ReactNode }) => (
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-      ),
-    });
+    const { result } = renderHook(() => useWorkspacesEnabled(), { wrapper: offlineWrapper });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
     });
 
     expect(result.current.workspacesEnabled).toBe(true);
+  });
+
+  test('refetches on reconnect even though the cached fallback is never stale', async () => {
+    // A genuinely offline load resolves with DEFAULT_RESPONSE, which is cached as a success.
+    // With staleTime: Infinity the query is never stale, so without refetchOnReconnect: 'always'
+    // the app would stay in its fallback configuration after the network came back.
+    queryClient.setQueryData(['serverInfo'], { store_type: '', workspaces_enabled: false });
+
+    const { result } = renderHook(() => useServerInfo(), { wrapper: offlineWrapper });
+
+    await waitFor(() => {
+      expect(result.current.data?.store_type).toBe('');
+    });
+
+    onlineManager.setOnline(true);
+
+    await waitFor(() => {
+      expect(result.current.data?.store_type).toBe('SqlStore');
+    });
+    expect(result.current.data?.workspaces_enabled).toBe(true);
   });
 });
